@@ -7,12 +7,9 @@ import (
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
-const SCREEN_WIDTH int32 = 800
-const SCREEN_HEIGHT int32 = 450
-
 const GRAVITATIONAL_CONSTANT float32 = 15
-const STEP float32 = 8.0
-const PHYSICS_DT float32 = 1.0 / (60.0 * STEP)
+const GRAVITY_SOFTENINING float32 = 3.0
+const PHYSICS_DT float32 = 1.0 / 120.0
 
 type particle struct {
 	pos  rl.Vector2
@@ -30,22 +27,13 @@ func new_particle(pos rl.Vector2, mass float32) particle {
 	}
 }
 
-// update pos and vel using velocity verlet integration
-func (p *particle) update_pos(dt float32) {
-	p.pos = p.pos.Add(p.vel.Scale(dt)).Add(p.acc.Scale(dt * dt * 0.5))
-}
-
-func (p *particle) update_vel(dt float32) {
-	p.vel = p.vel.Add(p.acc.Scale(dt * 0.5))
-}
-
 func (p particle) draw_particle() {
 	rl.DrawCircle(int32(p.pos.X), int32(p.pos.Y), p.mass, rl.RayWhite)
 }
 
 func new_pos_rand() rl.Vector2 {
-	pos_x := rand.Float32() * float32(SCREEN_WIDTH)
-	pos_y := rand.Float32() * float32(SCREEN_HEIGHT)
+	pos_x := rand.Float32() * float32(rl.GetScreenWidth())
+	pos_y := rand.Float32() * float32(rl.GetScreenHeight())
 	return rl.NewVector2(pos_x, pos_y)
 }
 
@@ -53,7 +41,7 @@ func create_particles(count uint32) []particle {
 	particles := make([]particle, 0, count)
 
 	for range count {
-		p := new_particle(new_pos_rand(), rand.Float32()*10+5)
+		p := new_particle(new_pos_rand(), rand.Float32()*10+1)
 		particles = append(particles, p)
 	}
 
@@ -72,7 +60,7 @@ func calc_acceleration(particles []particle) {
 
 			dx := p2.pos.X - p1.pos.X
 			dy := p2.pos.Y - p1.pos.Y
-			distance_sqrd := dx*dx + dy*dy
+			distance_sqrd := dx*dx + dy*dy + (GRAVITY_SOFTENINING * GRAVITY_SOFTENINING)
 
 			if distance_sqrd == 0 {
 				continue
@@ -91,15 +79,17 @@ func calc_acceleration(particles []particle) {
 	}
 }
 
+// update pos and vel using velocity verlet integration
 func update(particles []particle, dt float32) {
 	for i := range particles {
-		particles[i].update_pos(dt)
+		particles[i].vel = particles[i].vel.Add(particles[i].acc.Scale(dt * 0.5))
+		particles[i].pos = particles[i].pos.Add(particles[i].vel.Scale(dt))
 	}
 
 	calc_acceleration(particles)
 
 	for i := range particles {
-		particles[i].update_vel(dt)
+		particles[i].vel = particles[i].vel.Add(particles[i].acc.Scale(dt * 0.5))
 	}
 }
 
@@ -110,12 +100,12 @@ func draw_particles(particles []particle) {
 }
 
 func main() {
-	rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Gravity Simulation - AoS")
+	rl.InitWindow(int32(rl.GetScreenWidth()), int32(rl.GetScreenHeight()), "Gravity Simulation - AoS")
 	defer rl.CloseWindow()
 
 	rl.SetTargetFPS(60)
 
-	var count uint32 = 10
+	var count uint32 = 1000
 	particles := create_particles(count)
 
 	var accumulator float32 = 0.0
@@ -134,6 +124,8 @@ func main() {
 		rl.ClearBackground(rl.Black)
 
 		draw_particles(particles)
+
+		rl.DrawFPS(10, 10)
 
 		rl.EndDrawing()
 	}
