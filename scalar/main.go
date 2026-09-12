@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"math"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
@@ -12,6 +13,12 @@ const (
 	PHYSICS_DT          float32 = 1.0 / 120.0
 	RADIUS_SCALE        float32 = 0.25
 	SPAWN_RADIUS        float32 = 350.0
+)
+
+var (
+	countPtr *int     = flag.Int("count", 1000, "Particle count")
+	ringPtr  *int     = flag.Int("ring", 333, "number of concentric circles")
+	speedPtr *float64 = flag.Float64("speed", 0.3, "speed of particles")
 )
 
 type particle struct {
@@ -34,9 +41,10 @@ func (p particle) drawParticle() {
 	rl.DrawCircle(int32(p.pos.X), int32(p.pos.Y), p.mass*RADIUS_SCALE, rl.RayWhite)
 }
 
-func createParticles(count uint32) []particle {
-	const speed float32 = 0.3
-	const ringCount uint32 = 333
+func createParticles() []particle {
+	speed := float32(*speedPtr)
+	count := *countPtr
+	ringCount := *ringPtr
 
 	particles := make([]particle, 0, count)
 	deltaDeg := 360.0 / float64(count/ringCount) * math.Pi / 180.0
@@ -118,13 +126,13 @@ func drawParticles(particles []particle) {
 }
 
 func main() {
+	flag.Parse()
 	rl.InitWindow(int32(rl.GetScreenWidth()), int32(rl.GetScreenHeight()), "Gravity Simulation - AoS")
 	defer rl.CloseWindow()
 
 	rl.SetTargetFPS(60)
 
-	var count uint32 = 1000
-	particles := createParticles(count)
+	particles := createParticles()
 
 	var accumulator float32 = 0.0
 
