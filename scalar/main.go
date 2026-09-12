@@ -2,14 +2,17 @@ package main
 
 import (
 	"math"
-	"math/rand/v2"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
 
-const GRAVITATIONAL_CONSTANT float32 = 15
-const GRAVITY_SOFTENINING float32 = 3.0
-const PHYSICS_DT float32 = 1.0 / 120.0
+const (
+	G                   float32 = 4000.0 // gravitational constant
+	GRAVITY_SOFTENINING float32 = 5.0
+	PHYSICS_DT          float32 = 1.0 / 120.0
+	RADIUS_SCALE        float32 = 0.25
+	SPAWN_RADIUS        float32 = 350.0
+)
 
 type particle struct {
 	pos  rl.Vector2
@@ -18,63 +21,75 @@ type particle struct {
 	mass float32
 }
 
-func new_particle(pos rl.Vector2, mass float32) particle {
+func newParticle(pos, vel rl.Vector2, mass float32) particle {
 	return particle{
 		pos:  pos,
-		vel:  rl.Vector2Zero(),
+		vel:  vel,
 		acc:  rl.Vector2Zero(),
 		mass: mass,
 	}
 }
 
-func (p particle) draw_particle() {
-	rl.DrawCircle(int32(p.pos.X), int32(p.pos.Y), p.mass, rl.RayWhite)
+func (p particle) drawParticle() {
+	rl.DrawCircle(int32(p.pos.X), int32(p.pos.Y), p.mass*RADIUS_SCALE, rl.RayWhite)
 }
 
-func new_pos_rand() rl.Vector2 {
-	pos_x := rand.Float32() * float32(rl.GetScreenWidth())
-	pos_y := rand.Float32() * float32(rl.GetScreenHeight())
-	return rl.NewVector2(pos_x, pos_y)
-}
-
-func create_particles(count uint32) []particle {
+func createParticles(count uint32) []particle {
+	var speed float32 = 0.3
 	particles := make([]particle, 0, count)
+	deltaDeg := 360.0 / float64(count) * math.Pi / 180.0
 
+	degree := float64(0.0)
 	for range count {
-		p := new_particle(new_pos_rand(), rand.Float32()*10+1)
+		dirX := SPAWN_RADIUS * float32(math.Cos(degree))
+		dirY := SPAWN_RADIUS * float32(math.Sin(degree))
+
+		posX := dirX + float32(rl.GetScreenWidth())/2.0
+		posY := dirY + float32(rl.GetScreenHeight())/2.0
+		pos := rl.NewVector2(posX, posY)
+
+		tangentDir := rl.NewVector2(dirY, -dirX)
+		p := newParticle(pos, tangentDir.Scale(speed), 5)
 		particles = append(particles, p)
+		degree += deltaDeg
 	}
+
+	// posX := float32(rl.GetScreenWidth()) / 2.0
+	// posY := float32(rl.GetScreenHeight()) / 2.0
+	// pos := rl.NewVector2(posX, posY)
+	// central_mass := newParticle(pos, rl.Vector2Zero(), 100)
+	// particles = append(particles, central_mass)
 
 	return particles
 }
 
-func calc_acceleration(particles []particle) {
+func calcAcceleration(particles []particle) {
 	for i := range particles {
 		particles[i].acc = rl.Vector2Zero()
 	}
 
-	for i := 0; i < len(particles); i++ {
+	for i := range particles {
 		for j := i + 1; j < len(particles); j++ {
 			p1 := &particles[i]
 			p2 := &particles[j]
 
 			dx := p2.pos.X - p1.pos.X
 			dy := p2.pos.Y - p1.pos.Y
-			distance_sqrd := dx*dx + dy*dy + (GRAVITY_SOFTENINING * GRAVITY_SOFTENINING)
+			distanceSqrd := dx*dx + dy*dy + (GRAVITY_SOFTENINING * GRAVITY_SOFTENINING)
 
-			if distance_sqrd == 0 {
+			if distanceSqrd == 0 {
 				continue
 			}
-			distance := math.Sqrt(float64(distance_sqrd))
+			distance := math.Sqrt(float64(distanceSqrd))
 
-			inv_distance := 1.0 / distance
-			inv_distance_cubed := float32(inv_distance * inv_distance * inv_distance)
+			invDist := 1.0 / distance
+			invDistCubed := float32(invDist * invDist * invDist)
 
-			p1.acc.X += GRAVITATIONAL_CONSTANT * p2.mass * dx * inv_distance_cubed
-			p1.acc.Y += GRAVITATIONAL_CONSTANT * p2.mass * dy * inv_distance_cubed
+			p1.acc.X += G * p2.mass * dx * invDistCubed
+			p1.acc.Y += G * p2.mass * dy * invDistCubed
 
-			p2.acc.X -= GRAVITATIONAL_CONSTANT * p1.mass * dx * inv_distance_cubed
-			p2.acc.Y -= GRAVITATIONAL_CONSTANT * p1.mass * dy * inv_distance_cubed
+			p2.acc.X -= G * p1.mass * dx * invDistCubed
+			p2.acc.Y -= G * p1.mass * dy * invDistCubed
 		}
 	}
 }
@@ -86,16 +101,16 @@ func update(particles []particle, dt float32) {
 		particles[i].pos = particles[i].pos.Add(particles[i].vel.Scale(dt))
 	}
 
-	calc_acceleration(particles)
+	calcAcceleration(particles)
 
 	for i := range particles {
 		particles[i].vel = particles[i].vel.Add(particles[i].acc.Scale(dt * 0.5))
 	}
 }
 
-func draw_particles(particles []particle) {
+func drawParticles(particles []particle) {
 	for _, p := range particles {
-		p.draw_particle()
+		p.drawParticle()
 	}
 }
 
@@ -106,7 +121,7 @@ func main() {
 	rl.SetTargetFPS(60)
 
 	var count uint32 = 1000
-	particles := create_particles(count)
+	particles := createParticles(count)
 
 	var accumulator float32 = 0.0
 
@@ -123,7 +138,9 @@ func main() {
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.Black)
 
-		draw_particles(particles)
+		drawParticles(particles)
+
+		// rl.DrawCircleLines(int32(rl.GetScreenWidth()/2.0), int32(rl.GetScreenHeight()/2.0), SPAWN_RADIUS, rl.RayWhite)
 
 		rl.DrawFPS(10, 10)
 
