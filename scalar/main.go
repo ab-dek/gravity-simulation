@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	G                   float32 = 4000.0 // gravitational constant
+	G                   float32 = 1000.0 // gravitational constant
 	GRAVITY_SOFTENINING float32 = 5.0
 	PHYSICS_DT          float32 = 1.0 / 120.0
 	RADIUS_SCALE        float32 = 0.25
@@ -35,14 +35,17 @@ func (p particle) drawParticle() {
 }
 
 func createParticles(count uint32) []particle {
-	var speed float32 = 0.3
-	particles := make([]particle, 0, count)
-	deltaDeg := 360.0 / float64(count) * math.Pi / 180.0
+	const speed float32 = 0.3
+	const ringCount uint32 = 333
 
-	degree := float64(0.0)
-	for range count {
-		dirX := SPAWN_RADIUS * float32(math.Cos(degree))
-		dirY := SPAWN_RADIUS * float32(math.Sin(degree))
+	particles := make([]particle, 0, count)
+	deltaDeg := 360.0 / float64(count/ringCount) * math.Pi / 180.0
+
+	for i := range count {
+		degree := (float64(i/ringCount) + float64(i%ringCount)/float64(ringCount)) * deltaDeg
+		rad := SPAWN_RADIUS - SPAWN_RADIUS*float32(i%ringCount)/float32(ringCount)
+		dirX := rad * float32(math.Cos(degree))
+		dirY := rad * float32(math.Sin(degree))
 
 		posX := dirX + float32(rl.GetScreenWidth())/2.0
 		posY := dirY + float32(rl.GetScreenHeight())/2.0
