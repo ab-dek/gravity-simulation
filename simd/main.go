@@ -36,8 +36,8 @@ func allocParticles(count int) particles {
 		posY: make([]float32, 0, count),
 		velX: make([]float32, 0, count),
 		velY: make([]float32, 0, count),
-		accX: make([]float32, 0, count),
-		accY: make([]float32, 0, count),
+		accX: make([]float32, count),
+		accY: make([]float32, count),
 		mass: make([]float32, 0, count),
 	}
 }
@@ -75,8 +75,155 @@ func createParticles() particles {
 	return ps
 }
 
-func update(ps particles, lanes int, dt float32) {
+func updateSystemSimd(ps particles, lanes int, dt float32) {
+	halfKickDrift(ps, lanes, dt)
+	calcAcceleration(ps, lanes, dt)
+	halfKick(ps, lanes, dt)
+}
 
+func halfKickDrift(ps particles, lanes int, dt float32) {
+	half_dt := simd.BroadcastFloat32s(dt * 0.5)
+	full_dt := simd.BroadcastFloat32s(dt)
+
+	i := 0
+	for i <= len(ps.posX)-lanes {
+		// v(t + dt/2) = v(t) + a(t) * dt/2
+		velX := simd.LoadFloat32s(ps.velX[i:])
+		accX := simd.LoadFloat32s(ps.accX[i:])
+		velX = accX.MulAdd(half_dt, velX)
+
+		velY := simd.LoadFloat32s(ps.velY[i:])
+		accY := simd.LoadFloat32s(ps.accY[i:])
+		velY = accY.MulAdd(half_dt, velY)
+
+		// x(t + dt) = x(t) + v(t + dt/2) * dt
+		posX := simd.LoadFloat32s(ps.posX[i:])
+		posX = velX.MulAdd(full_dt, posX)
+
+		posY := simd.LoadFloat32s(ps.posY[i:])
+		posY = velY.MulAdd(full_dt, posY)
+
+		velX.Store(ps.velX[i:])
+		velY.Store(ps.velY[i:])
+		posX.Store(ps.posX[i:])
+		posY.Store(ps.posY[i:])
+
+		i += lanes
+	}
+
+	for ; i < len(ps.posX); i++ {
+		ps.velX[i] += ps.accX[i] * dt * 0.5
+		ps.velY[i] += ps.accY[i] * dt * 0.5
+
+		ps.posX[i] += ps.velX[i] * dt
+		ps.posY[i] += ps.velY[i] * dt
+	}
+}
+
+func calcAcceleration(ps particles, lanes int, dt float32) {
+	clear(ps.accX)
+	clear(ps.accY)
+
+	GConst := simd.BroadcastFloat32s(G)
+	softeningSquared := simd.BroadcastFloat32s(GRAVITY_SOFTENINING * GRAVITY_SOFTENINING)
+	zeroVec := simd.BroadcastFloat32s(0.0)
+	oneVec := simd.BroadcastFloat32s(1.0)
+
+	for i := range len(ps.posX) {
+		p1PosXScalar := ps.posX[i]
+		p1PosYScalar := ps.posY[i]
+		p1MassScalar := ps.mass[i]
+
+		p1AccXScalar := float32(0.0)
+		p1AccYScalar := float32(0.0)
+
+		p1PosX := simd.BroadcastFloat32s(ps.posX[i])
+		p1PosY := simd.BroadcastFloat32s(ps.posY[i])
+
+		p1Mass := simd.BroadcastFloat32s(ps.mass[i])
+
+		p1AccX := zeroVec
+		p1AccY := zeroVec
+
+		j := i + 1
+		for j <= len(ps.posX)-lanes {
+			p2PosX := simd.LoadFloat32s(ps.posX[j:])
+			p2PosY := simd.LoadFloat32s(ps.posY[j:])
+			p2Mass := simd.LoadFloat32s(ps.mass[j:])
+
+			p2AccX := simd.LoadFloat32s(ps.accX[j:])
+			p2AccY := simd.LoadFloat32s(ps.accY[j:])
+
+			// distance
+			dx := p2PosX.Sub(p1PosX)
+			dy := p2PosY.Sub(p1PosY)
+			distSqrd := dx.MulAdd(dx, dy.MulAdd(dy, softeningSquared))
+
+			invDist := oneVec.Div(distSqrd.Sqrt())
+			invDistCubed := invDist.Mul(invDist.Mul(invDist))
+
+			commonFactor := invDistCubed.Mul(GConst)
+
+			p1AccX = commonFactor.MulAdd(p2Mass.Mul(dx), p1AccX)
+			p1AccY = commonFactor.MulAdd(p2Mass.Mul(dy), p1AccY)
+
+			p2AccX = p2AccX.Sub(commonFactor.Mul(p1Mass.Mul(dx)))
+			p2AccY = p2AccY.Sub(commonFactor.Mul(p1Mass.Mul(dy)))
+
+			p2AccX.Store(ps.accX[j:])
+			p2AccY.Store(ps.accY[j:])
+
+			j += lanes
+		}
+
+		for ; j < len(ps.posX); j++ {
+			p2PosXScalar := ps.posX[j]
+			p2PosYScalar := ps.posY[j]
+
+			dx := p2PosXScalar - p1PosXScalar
+			dy := p2PosYScalar - p1PosYScalar
+			distSqrd := dx*dx + dy*dy + (GRAVITY_SOFTENINING * GRAVITY_SOFTENINING)
+			dist := math.Sqrt(float64(distSqrd))
+
+			invDist := 1.0 / dist
+			invDistCubed := float32(invDist * invDist * invDist)
+
+			p1AccXScalar += G * ps.mass[j] * dx * invDistCubed
+			p1AccYScalar += G * ps.mass[j] * dy * invDistCubed
+
+			ps.accX[j] -= G * p1MassScalar * dx * invDistCubed
+			ps.accY[j] -= G * p1MassScalar * dy * invDistCubed
+		}
+
+		ps.accX[i] += p1AccX.Sum() + p1AccXScalar
+		ps.accY[i] += p1AccY.Sum() + p1AccYScalar
+	}
+}
+
+func halfKick(ps particles, lanes int, dt float32) {
+	half_dt := simd.BroadcastFloat32s(dt * 0.5)
+
+	i := 0
+	for i <= len(ps.posX)-lanes {
+		// v(t + dt/2) = v(t) + a(t) * dt/2
+		velX := simd.LoadFloat32s(ps.velX[i:])
+		accX := simd.LoadFloat32s(ps.accX[i:])
+		velX = accX.MulAdd(half_dt, velX)
+
+		velY := simd.LoadFloat32s(ps.velY[i:])
+		accY := simd.LoadFloat32s(ps.accY[i:])
+		velY = accY.MulAdd(half_dt, velY)
+
+		velX.Store(ps.velX[i:])
+		velY.Store(ps.velY[i:])
+
+		i += lanes
+	}
+
+	for ; i < len(ps.posX); i++ {
+		ps.velX[i] += ps.accX[i] * dt * 0.5
+		ps.velY[i] += ps.accY[i] * dt * 0.5
+	}
 }
 
 func main() {
@@ -89,6 +236,7 @@ func main() {
 	particles := createParticles()
 
 	var accumulator float32 = 0.0
+
 	var vec simd.Float32s
 	lanes := vec.Len()
 
@@ -97,7 +245,7 @@ func main() {
 		accumulator += dt
 
 		for accumulator >= PHYSICS_DT {
-			update(particles, lanes, PHYSICS_DT)
+			updateSystemSimd(particles, lanes, PHYSICS_DT)
 
 			accumulator -= PHYSICS_DT
 		}
