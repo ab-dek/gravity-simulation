@@ -52,10 +52,10 @@ func createParticles() particles {
 	deltaDeg := 360.0 / float64(count/ringCount) * math.Pi / 180.0
 
 	for i := range count {
-		degree := (float64(i/ringCount) + float64(i%ringCount)/float64(ringCount)) * deltaDeg
+		angle := (float64(i/ringCount) + float64(i%ringCount)/float64(ringCount)) * deltaDeg
 		rad := SPAWN_RADIUS - SPAWN_RADIUS*float32(i%ringCount)/float32(ringCount)
-		dirX := rad * float32(math.Cos(degree))
-		dirY := rad * float32(math.Sin(degree))
+		dirX := rad * float32(math.Cos(angle))
+		dirY := rad * float32(math.Sin(angle))
 
 		posX := dirX + float32(rl.GetScreenWidth())/2.0
 		ps.posX = append(ps.posX, posX)
@@ -69,7 +69,7 @@ func createParticles() particles {
 
 		mass := float32(5)
 		ps.mass = append(ps.mass, mass)
-		degree += deltaDeg
+		angle += deltaDeg
 	}
 
 	return ps
@@ -195,9 +195,21 @@ func calcAcceleration(ps particles, lanes int, dt float32) {
 			ps.accY[j] -= G * p1MassScalar * dy * invDistCubed
 		}
 
-		ps.accX[i] += p1AccX.Sum() + p1AccXScalar
-		ps.accY[i] += p1AccY.Sum() + p1AccYScalar
+		ps.accX[i] += sumFloat32s(p1AccX) + p1AccXScalar
+		ps.accY[i] += sumFloat32s(p1AccY) + p1AccYScalar
 	}
+}
+
+func sumFloat32s(v simd.Float32s) float32 {
+	var buf [64]float32
+	n := v.Len()
+	v.Store(buf[:n])
+
+	var sum float32
+	for i := 0; i < n; i++ {
+		sum += buf[i]
+	}
+	return sum
 }
 
 func halfKick(ps particles, lanes int, dt float32) {
@@ -223,6 +235,12 @@ func halfKick(ps particles, lanes int, dt float32) {
 	for ; i < len(ps.posX); i++ {
 		ps.velX[i] += ps.accX[i] * dt * 0.5
 		ps.velY[i] += ps.accY[i] * dt * 0.5
+	}
+}
+
+func drawParticles(ps particles) {
+	for i := range ps.posX {
+		rl.DrawCircle(int32(ps.posX[i]), int32(ps.posY[i]), ps.mass[i]*RADIUS_SCALE, rl.RayWhite)
 	}
 }
 
@@ -253,11 +271,11 @@ func main() {
 		rl.BeginDrawing()
 		rl.ClearBackground(rl.Black)
 
-		// drawParticles(particles)
+		drawParticles(particles)
 
 		// rl.DrawCircleLines(int32(rl.GetScreenWidth()/2.0), int32(rl.GetScreenHeight()/2.0), SPAWN_RADIUS, rl.RayWhite)
 
-		rl.DrawText(fmt.Sprintf("lanes: %d", lanes), 10, 30, 20, rl.RayWhite)
+		rl.DrawText(fmt.Sprintf("simd lanes: %d", lanes), 10, 30, 20, rl.RayWhite)
 		rl.DrawFPS(10, 10)
 
 		rl.EndDrawing()
