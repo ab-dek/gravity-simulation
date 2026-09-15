@@ -2,7 +2,9 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"math"
+	"time"
 
 	rl "github.com/gen2brain/raylib-go/raylib"
 )
@@ -136,14 +138,25 @@ func main() {
 
 	var accumulator float32 = 0.0
 
+	timer := time.NewTimer(2 * time.Second)
+	var elapsed time.Duration
+
 	for !rl.WindowShouldClose() {
 		dt := rl.GetFrameTime()
 		accumulator += dt
 
+		now := time.Now()
 		for accumulator >= PHYSICS_DT {
 			update(particles, PHYSICS_DT)
 
 			accumulator -= PHYSICS_DT
+		}
+
+		select {
+		case <-timer.C:
+			elapsed = time.Since(now)
+			timer.Reset(2 * time.Second)
+		default:
 		}
 
 		rl.BeginDrawing()
@@ -153,6 +166,7 @@ func main() {
 
 		// rl.DrawCircleLines(int32(rl.GetScreenWidth()/2.0), int32(rl.GetScreenHeight()/2.0), SPAWN_RADIUS, rl.RayWhite)
 
+		rl.DrawText(fmt.Sprintf("update time: %.1f ms", float64(elapsed.Milliseconds())), 10, 50, 20, rl.RayWhite)
 		rl.DrawFPS(10, 10)
 
 		rl.EndDrawing()
